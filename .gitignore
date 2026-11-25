@@ -1,0 +1,6 @@
+/new-api-mcp
+/bin/
+*.test
+coverage.out
+.env
+.env.*

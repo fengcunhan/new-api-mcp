@@ -1,0 +1,24 @@
+# 别把这些打进镜像: 版本库、密钥、本地依赖、日志与数据
+.git
+.env
+.env.*
+!.env.example
+*.pem
+id_*
+*.key
+node_modules
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+logs
+*.log
+.DS_Store
+.idea
+.vscode
+bin
+dist
+e2e
+*.test
+coverage.out
