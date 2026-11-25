@@ -1,5 +1,7 @@
 # 架构
 
+[English](architecture.en.md) | 简体中文
+
 本文讲 new-api-mcp 怎么搭：分层、核心抽象、请求流程和关键取舍。“做什么、为什么”见 [design.md](design.md)。
 
 ## 1. 约束

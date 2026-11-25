@@ -1,17 +1,19 @@
 # new-api-mcp
 
-把 [new-api](https://github.com/QuantumNous/new-api) 的管理后台接口包装成 [MCP](https://modelcontextprotocol.io) 工具，让 Claude Code、Codex 等 Agent 能查渠道、查日志、看用量、启停渠道、改定价。
+English | [简体中文](README.zh-CN.md)
 
-- **不持有凭据**：每个调用方带着自己的 new-api 个人访问令牌（PAT，`nap_...`）访问，服务原样透传。能做什么完全由令牌在 new-api 里的权限决定，撤权立即生效，所有操作都记在 new-api 的审计日志里。
-- **改动先预览**：配置类操作分两步。第一次调用只返回 diff 和 `confirm_token`；带上令牌再调一次才执行。如果预览之后目标被别人改过，执行会被拒绝。
-- **不外泄密钥**：渠道 key、令牌明文从不出现在输出里；渠道代理地址和请求头覆盖里的凭据会被打码。
-- **不提供高危操作**：没有删除渠道/用户、禁用用户、改角色、查看密钥这类工具。
+An [MCP](https://modelcontextprotocol.io) server that exposes the admin API of [new-api](https://github.com/QuantumNous/new-api) as tools, so agents such as Claude Code and Codex can inspect channels, search logs, read usage reports, enable or disable channels and update model pricing.
 
-设计说明见 [docs/design.md](docs/design.md)，架构见 [docs/architecture.md](docs/architecture.md)。
+- **Holds no credentials.** Every caller brings their own new-api personal access token (PAT, `nap_...`) and the server forwards it unchanged. What a caller can do is decided entirely by that token's permissions in new-api; revoking a permission takes effect immediately, and every action is recorded in new-api's audit log.
+- **Changes are previewed first.** Configuration changes take two calls. The first returns a diff and a `confirm_token`; only a second call with the token applies the change. If the target changed after the preview, the change is refused.
+- **Never leaks secrets.** Channel keys and token values never appear in output; credentials in channel proxy URLs and header overrides are masked.
+- **No high-risk operations.** There are no tools to delete channels or users, disable users, change roles or reveal keys.
 
-## 工具
+See [docs/design.en.md](docs/design.en.md) for the design and [docs/architecture.en.md](docs/architecture.en.md) for the architecture.
 
-| 域 | 只读 | 可逆操作 | 配置变更（两步确认） |
+## Tools
+
+| Toolset | Read | Reversible operations | Configuration changes (two-step) |
 | --- | --- | --- | --- |
 | ops | `server_status` `model_list` `model_missing` `group_list` `perf_stats` `system_info` | | |
 | channel | `channel_list` `channel_get` `channel_routing` `channel_codex_usage` | `channel_test` `channel_set_status` `channel_multikey` `channel_fetch_upstream_models` | `channel_update` |
@@ -20,71 +22,71 @@
 | pricing / option | `pricing_get` `pricing_issues` `option_get` | | `pricing_update` `option_set` |
 | report | `usage_quota_report` | | |
 
-## 快速开始
+## Quick start
 
 ```bash
 docker build -t new-api-mcp .
-docker run -d -p 8080:8080 -e NEWAPI_BASE_URL=https://your-new-api.example.com -e MCP_ALLOW=write -e TZ=Asia/Shanghai new-api-mcp
+docker run -d -p 8080:8080 -e NEWAPI_BASE_URL=https://your-new-api.example.com -e MCP_ALLOW=write -e TZ=UTC new-api-mcp
 ```
 
-在 new-api 控制台「个人设置 → 访问令牌」新建令牌并勾选需要的 scope，然后接入 Claude Code：
+Create an access token in the new-api console (personal settings → access tokens) with the scopes you need, then add the server to Claude Code:
 
 ```bash
 claude mcp add --transport http new-api http://localhost:8080/mcp \
   --header "Authorization: Bearer nap_xxx"
 ```
 
-让 Agent 先调用 `server_status`，能返回 new-api 版本和你的用户名就说明接通了。
+Ask the agent to call `server_status` first. If it returns the new-api version and your username, you are connected.
 
-本机也可以用 stdio 模式，不起 HTTP 服务：
+You can also run it locally over stdio without an HTTP server:
 
 ```bash
 MCP_TRANSPORT=stdio NEWAPI_BASE_URL=https://your-new-api.example.com NEWAPI_PAT=nap_xxx go run ./cmd/new-api-mcp
 ```
 
-### 常用 scope
+### Common scopes
 
-| 用途 | scope |
+| Purpose | Scopes |
 | --- | --- |
-| 只读排障 | `profile:read` `channel:read` `log:read` `user:read` `model:read` `group:read` `audit:read` |
-| 定价、配置、节点（root） | `option:read` `option:write` `ops:read` |
-| 渠道操作 | `channel:operate` `channel:write` |
-| 用户余额与资料 | `user:write` |
+| Read-only troubleshooting | `profile:read` `channel:read` `log:read` `user:read` `model:read` `group:read` `audit:read` |
+| Pricing, options, nodes (root) | `option:read` `option:write` `ops:read` |
+| Channel operations | `channel:operate` `channel:write` |
+| User balance and profile | `user:write` |
 
-## 配置
+## Configuration
 
-| 变量 | 说明 | 默认 |
+| Variable | Description | Default |
 | --- | --- | --- |
-| `NEWAPI_BASE_URL` | new-api 地址，必填 | — |
-| `MCP_TRANSPORT` | `http` 或 `stdio` | `http` |
-| `NEWAPI_PAT` | 仅 stdio 模式，必填；HTTP 模式禁止设置 | — |
-| `MCP_LISTEN` | HTTP 监听地址 | `:8080` |
-| `MCP_ALLOW` | 暴露哪些工具：`read` / `operate` / `write`，逐级包含 | `read` |
-| `MCP_TOOLSETS` | 只暴露这些域，逗号分隔：`ops,channel,logs,user,pricing,option,report` | 全部 |
-| `MCP_CONFIRM_SECRET` | 两步确认的签名密钥，≥32 字节；不配则启动时随机生成 | 随机 |
-| `MCP_UPSTREAM_RPS` / `MCP_UPSTREAM_BURST` | 调 new-api 的限速 | `1.5` / `10` |
-| `MCP_UPSTREAM_TIMEOUT` | 单次调用超时（`channel_test` 固定 150s） | `30s` |
+| `NEWAPI_BASE_URL` | new-api address, required | — |
+| `MCP_TRANSPORT` | `http` or `stdio` | `http` |
+| `NEWAPI_PAT` | stdio mode only, required there; must not be set in HTTP mode | — |
+| `MCP_LISTEN` | HTTP listen address | `:8080` |
+| `MCP_ALLOW` | Which tools to expose: `read` / `operate` / `write`, each including the previous | `read` |
+| `MCP_TOOLSETS` | Expose only these toolsets, comma-separated: `ops,channel,logs,user,pricing,option,report` | all |
+| `MCP_CONFIRM_SECRET` | Signing key for two-step confirmation, at least 32 bytes; generated at start when unset | random |
+| `MCP_UPSTREAM_RPS` / `MCP_UPSTREAM_BURST` | Rate limit for calls to new-api | `1.5` / `10` |
+| `MCP_UPSTREAM_TIMEOUT` | Per-call timeout (`channel_test` always uses 150s) | `30s` |
 | `MCP_LOG_LEVEL` | `debug` / `info` / `warn` / `error` | `info` |
-| `TZ` | 输出时间所用的时区 | 系统时区 |
+| `TZ` | Timezone used for times in output | system timezone |
 
-HTTP 端点：`POST /mcp`（需 `Authorization: Bearer nap_...`）、`GET /healthz`、`GET /readyz`、`GET /metrics`（Prometheus）。
+HTTP endpoints: `POST /mcp` (requires `Authorization: Bearer nap_...`), `GET /healthz`, `GET /readyz`, `GET /metrics` (Prometheus).
 
-**建议单副本运行。** new-api 默认按来源 IP 限流（`GLOBAL_API_RATE_LIMIT`，360 次 / 180 秒），对 new-api 来说本服务就是一个 IP，多副本只会让总请求速率翻倍。默认 1.5 rps 留了余量。
+**Run a single replica.** new-api rate-limits by source IP by default (`GLOBAL_API_RATE_LIMIT`, 360 requests per 180 seconds). To new-api this server is one IP, so extra replicas only multiply the total request rate. The default of 1.5 rps leaves headroom.
 
-## 开发
+## Development
 
 ```bash
-go test ./...                                   # 单元与集成测试
-go run ./tools/contractcheck -newapi ../new-api # 把每个工具声明的路由和 scope 与 new-api 源码逐条比对
-go run ./cmd/new-api-mcp manifest               # 导出工具清单（JSON）
+go test ./...                                   # unit and integration tests
+go run ./tools/contractcheck -newapi ../new-api # compare every tool's routes and scopes with the new-api source
+go run ./cmd/new-api-mcp manifest               # print the tool manifest as JSON
 ```
 
-端到端测试会修改数据，只能对一次性的 new-api 实例跑，准备方法见 `e2e/e2e_test.go` 文件头：
+End-to-end tests modify data, so run them only against a disposable new-api instance. See the header of `e2e/e2e_test.go` for the required setup:
 
 ```bash
 NEWAPI_BASE_URL=http://127.0.0.1:3000 E2E_READ_PAT=nap_... E2E_WRITE_PAT=nap_... go test -tags e2e ./e2e/
 ```
 
-新增工具的步骤：在 `internal/newapi/routes.go` 加路由常量 → 在 `internal/tools/<域>/` 写处理函数和 `tools.Spec` → 加进该域的 `Definitions()` → 跑契约检查。升级 new-api 后也先跑一次契约检查。
+To add a tool: add the route constant to `internal/newapi/routes.go` → write the handler and its `tools.Spec` under `internal/tools/<toolset>/` → add it to that toolset's `Definitions()` → run the contract check. Run the contract check after every new-api upgrade as well.
 
-目前对照的 new-api 版本：`v1.0.0-rc.51`。
+Checked against new-api `v1.0.0-rc.51`.

@@ -1,5 +1,7 @@
 # 设计说明
 
+[English](design.en.md) | 简体中文
+
 本文说明 new-api-mcp 要解决什么问题、为什么这样设计，以及刻意不做的事。实现层面的结构见 [architecture.md](architecture.md)。
 
 ## 1. 目标与非目标
